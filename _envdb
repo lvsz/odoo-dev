@@ -1,0 +1,14 @@
+#!/bin/bash
+
+ODOODIR="$PWD"
+while [ "$ODOODIR" != '/' ]
+do
+    test -x "${ODOODIR}/odoo/odoo-bin" && break
+    ODOODIR=`dirname "$ODOODIR"`
+done
+
+test "$ODOODIR" = '/' && >&2 echo "bad dir: $PWD" && exit 1
+ODOODIR="$ODOODIR/odoo"
+
+grep '^version_info' "${ODOODIR}/odoo/release.py" \
+    | sed 's/[^0-9]*\([0-9]*\)[^0-9]*\([0-9]*\).*$/\1.\2/'

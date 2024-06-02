@@ -1,0 +1,11 @@
+#!/bin/bash
+
+test "$1" && grep -q '^[a-f0-9]*$' <<< "$1" || exit 1
+
+url="https://github.com/odoo/odoo/commit/$1"
+if [ "$(curl -s $url)" = 'Not Found' ]
+then
+    open ${url/o\/odoo/o/enterprise}
+else
+    open $url
+fi

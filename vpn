@@ -1,0 +1,35 @@
+#!/bin/bash
+
+confpath="$HOME/.config/openvpn"
+default="$confpath/default"
+authfile="$confpath/up"
+
+runVPN () {
+    sudo openvpn --config "$1" --auth-user-pass "$authfile"
+}
+#/bin/bash
+#//OVPN="${0%/*}"
+#sudo openvpn --config "$OVPN/$1" --auth-user-pass "$OVPN/up"
+arg1=$1
+
+case "$arg1" in
+    'set')
+        echo "$2.ovpn" > "$default"
+        ;; #ln -s "$confpath/$2.ovpn" "$default";;
+    'get')
+        cat "$default" | grep -oE '^[_A-Za-z]+' -
+        ;;
+    'list')
+        ls $confpath/*.ovpn \
+            | sed -E 's/.*openvpn\/(.+)\.ovpn/\1/' \
+            | paste - - - - \
+            | tab2space -t22 \
+            | sed -E 's/ a(l|n|r)/a\1/'
+        ;;
+    *) if [ -f "$confpath/$arg1.ovpn" ]; then
+        runVPN "$confpath/$arg1.ovpn"
+    else
+        runVPN "$confpath/`cat "$default"`"
+    fi
+    ;;
+esac

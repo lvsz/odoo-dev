@@ -1,0 +1,107 @@
+#!/bin/bash
+
+test "$(command -v rg)"  && grep=rg || grep='grep -E --color'
+&> /dev/null command $grep -V || grep='grep -E'
+
+get_flag_args() {
+    while [ -n "$1" -a "${1:0:1}" != '-' ]
+    do
+        echo "($1)" && shift
+    done
+}
+
+db_exists() {
+    psql -l | $grep -q $1
+}
+
+test "${1:0:1}" -a "${1:0:1}" != '-' && db_exists "$1" && set -- '-d' "$@"
+
+__DB=`_envdb`
+__COL='name'
+__TABLE='ir_module_module'
+__WHERE="state = 'installed'"
+
+while [ "${1:0:1}" = '-' ]
+do
+    if [ "${1:0:2}" = '--' ]
+    then
+        flag=${1%%=*}
+        set -- "${1#*=}" "${@:2}"
+    else
+        flag=${1:0:2}
+        if [ ${#1} -gt 2 ]
+        then
+            set -- "${1:2}" "${@:2}"
+        else
+            shift
+        fi
+    fi
+    case "$flag" in
+        '-d' | '--dbname')
+            __DB="$1"
+            shift;;
+        '-s' | '--seperator')
+            __SEP="$1"
+            shift;;
+        '-c' | '--column')
+            __COL="$1"
+            shift;;
+        '-t' | '--table')
+            __TABLE="${1//./_}"
+            shift;;
+        '-q' | '--query')
+            __WHERE="$1"
+            shift;;
+        '-F' | '--fixed')
+            __FIXED=1
+            ;;
+        '-l' | '--list')
+            exec $0 $db -p '.' $@
+            todo="psql \$db -c \"SELECT name FROM ir_module_module WHERE state = 'installed' ORDER BY name\""
+            eval $todo
+            exit $?
+            ;;
+        'f' | 'p')
+            # query installed modules
+            todo="psql \$db -c \"SELECT name FROM ir_module_module WHERE state = 'installed' ORDER BY name\""
+            __args=(`get_flag_args "$@"`)
+            shift ${#__args[@]}
+            if [ ${#__args[@]} -gt 0 ]
+            then
+                __f() { echo "(\\b$(sed 's/ /\\b|\\b/g' <<< $@)\\b)"; }
+                __p() { echo "($(tr ' ' '|' <<< $@))"; }
+                __args=`'__'$flag "${__args[@]}"`
+                if [ -z "$__SEP" ]
+                then
+                    $grep $__args <<< $(eval $todo | $grep '^ \w')
+                else
+                    mods=(`$grep $__args <<< $(eval $todo | $grep '^ \w')`)
+                    echo ${mods[@]} | tr ' ' "$__SEP"
+                fi
+            fi
+                ;;
+        *)
+            >&2 echo "unkown arg: $flag" && exit 1
+            ;;
+    esac
+done
+
+if [ "$__FIXED" ]
+then
+    __WHERE="$__WHERE AND $__COL IN ("`sed -E "s/(\w+)/'\1'/g" <<< $@ | tr ' ' ','`')'
+fi
+
+__QUERY="SELECT $__COL FROM $__TABLE WHERE $__WHERE ORDER BY $__COL;" 
+__PSQL='psql $__DB -c "$__QUERY" | tail -n +3 | head -n -2'
+
+if [ "$__SEP" ]
+then
+    readarray -t __RES <<< "$(eval $__PSQL)"
+    for __EL in "${__RES[@]}"
+    do
+        __RET="${__RET}${__SEP}${__EL:1}"
+    done
+    echo ${__RET:${#__SEP}}
+else
+    eval $__PSQL
+fi

@@ -1,0 +1,161 @@
+#!/bin/bash
+
+root=`grep -o ".*/src/odoo/[^/]*" <<< "$PWD"`
+test -z "$root" && >&2 echo "bad dir: $PWD" && exit 1
+
+wait_then_open() {
+    for ((i = 0; i < 120; ++i))
+    do
+        sleep 1
+        test -z "$(curl -s $1)" && continue
+        test -z "$__PRODUCTION" && sh -c "open $2" || sh -c "open $2?debug=assets"
+        break
+    done
+}
+community() {
+    test -z "$__DBSET" && db="${version}"
+    addons="${root}/odoo/addons"
+    test "$version" = 'master' && ip="127.0.0.1" || ip="127.0.${version}"
+    unset __OE
+}
+enterprise() {
+    test -z "$__DBSET" && db="${version}e"
+    addons="${root}/odoo/addons,${root}/enterprise"
+    test "$version" = 'master' && ip="127.0.0.1" || ip="127.0.${version}"
+    __OE=1
+}
+all_modules() {
+    modules=(`ls "$root/odoo/addons" | grep -vE '^(l10n|test)'`)
+    test $__OE && modules+=(`ls "$root/enterprise" | grep -vE '^(l10n|test)'`)
+    tr ' ' ',' <<< ${modules[@]}
+}
+
+#version=`basename $root`
+version=`_envdb || basename $root`
+case `basename $0` in
+    'oe') enterprise;;
+    *) community;;
+esac
+
+get_flag_args() {
+    while [ -n "$1" ] && [ "${1:0:1}" != '-' ]
+    do
+        echo $1
+        shift
+    done
+}
+
+exe="${root}/odoo/odoo-bin"
+
+while [ -n "$1" ]
+do
+    if [ "${1:0:1}" = '-' ]
+    then
+        flag=${1:1:1}
+        if [ ${#1} -gt 2 ]
+        then
+            tmp=${1:2}
+            shift
+            set -- $tmp "$@"
+        else
+            shift
+        fi
+    else
+        flag=${1:0:1}
+        if [ ${#1} -gt 1 ]
+        then
+            tmp=${1:1}
+            shift
+            set -- $tmp "$@"
+        else
+            shift
+        fi
+    fi
+    case "$flag" in
+        'i' | 'u')  # install / update
+            if [ "$1" = 'all' ]
+            then
+                shift
+                case "$flag" in
+                    'i') args+=("-i`all_modules`");;
+                    'u') args+=("-u`querydb -d $db -s, -p '.'`");;
+                esac
+            else
+                init="-${flag}${1}"
+                shift
+                arg=$1
+                while [ -n "$arg" ] && [ "${arg:0:1}" != '-' ]
+                do
+                    init="${init},${arg}"
+                    shift
+                    arg=$1
+                done
+                args+=($init)
+            fi;;
+      'c')
+          __VERSIONSET=1
+          community;;
+      'e')
+          __VERSIONSET=1
+          enterprise;;
+      'o')
+          port="8${version//./}"
+          args+=("-p${port}")
+          url="http://${ip}:${port}";;
+      'O')
+          # open browser
+          port="8${version//./}"
+          args+=("-p${port}")
+          url="http://${ip}:${port}"
+          __TODO+=("wait_then_open $url ${url}/web");;
+      'd')
+          __DBSET=1
+          db=$1
+          shift;;
+      'x')
+          args+=("--stop-after-init");;
+      's')
+          exe="${exe} shell"
+          test ! $__LOGFILESET && args+=("--logfile=/tmp/${db}.log");;
+      'q')
+          test ! $__LOGFILESET && args+=("--logfile=/tmp/${db}.log");;
+      'f')
+          __LOGFILESET=1
+          args+=("--logfile=${1}")
+          shift;;
+      'l')
+          args+=("--log-level=${1}")
+          shift;;
+      'W')
+          args+=("--log-level=warn");;
+      'r')
+          # reset database
+          # don't eval yet in case `-d` flag was used
+          #todo="dropdb \$db 2&> /dev/null;${todo}";;
+          __TODO+=("dropdb \$db");;
+      'P')
+          __PRODUCTION=1;;
+      '-')
+          # add odoo-bin flag (no spaces)
+          args+=("--${1}")
+          shift;;
+      *)
+           >&2 echo "unkown arg: $flag" && exit 1
+    esac
+done
+
+test -z "$__PRODUCTION" && args+=('--dev=all')
+
+if [ -d "${root}/venv" ]
+then
+    source "${root}/venv/bin/activate"
+fi
+
+for _todo in "${__TODO[@]}"
+do
+    eval "echo $_todo" && eval "$_todo" &
+done
+
+cd "${root}/odoo"
+exec="$exe -d$db --addons-path="$addons" ${args[@]}"
+echo $exec && $exec
