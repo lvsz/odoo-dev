@@ -3,6 +3,22 @@
 root=`grep -o ".*/src/odoo/[^/]*" <<< "$PWD"`
 test -z "$root" && >&2 echo "bad dir: $PWD" && exit 1
 
+__VERSION=$(_envdb || basename $root)
+case $(basename $0) in
+    'oe')
+        __ADDONS=("${root}/odoo/addons" "$root/enterprise")
+        __OE=1
+        ;;
+    'o')
+        __ADDONS=("${root}/odoo/addons")
+        ;;
+esac
+
+if [ -d "${root}/design-themes" ]
+then
+    __ADDONS+=("$root/design-themes")
+fi
+
 wait_then_open() {
     for ((i = 0; i < 120; ++i))
     do
@@ -13,29 +29,17 @@ wait_then_open() {
     done
 }
 community() {
-    test -z "$__DBSET" && db="${version}"
-    addons="${root}/odoo/addons"
-    test "$version" = 'master' && ip="127.0.0.1" || ip="127.0.${version}"
+    test -z "$__DBSET" && db="${__VERSION}"
     unset __OE
 }
 enterprise() {
-    test -z "$__DBSET" && db="${version}e"
-    addons="${root}/odoo/addons,${root}/enterprise"
-    test "$version" = 'master' && ip="127.0.0.1" || ip="127.0.${version}"
-    __OE=1
+    test -z "$__DBSET" && db="${__VERSION}e"
 }
 all_modules() {
     modules=(`ls "$root/odoo/addons" | grep -vE '^(l10n|test)'`)
     test $__OE && modules+=(`ls "$root/enterprise" | grep -vE '^(l10n|test)'`)
     tr ' ' ',' <<< ${modules[@]}
 }
-
-#version=`basename $root`
-version=`_envdb || basename $root`
-case `basename $0` in
-    'oe') enterprise;;
-    *) community;;
-esac
 
 get_flag_args() {
     while [ -n "$1" ] && [ "${1:0:1}" != '-' ]
@@ -46,6 +50,7 @@ get_flag_args() {
 }
 
 exe="${root}/odoo/odoo-bin"
+__DEFAULTLOGLEVEL=warn
 
 while [ -n "$1" ]
 do
@@ -91,25 +96,13 @@ do
                     arg=$1
                 done
                 args+=($init)
-            fi;;
-      'c')
-          __VERSIONSET=1
-          community;;
-      'e')
-          __VERSIONSET=1
-          enterprise;;
-      'o')
-          port="8${version//./}"
-          args+=("-p${port}")
-          url="http://${ip}:${port}";;
+            fi
+            __DEFAULTLOGLEVEL=info;;
+      'h')
+          __LOCALHOST=1;;
       'O')
-          # open browser
-          port="8${version//./}"
-          args+=("-p${port}")
-          url="http://${ip}:${port}"
-          __TODO+=("wait_then_open $url ${url}/web");;
+          __OPEN=1;;
       'd')
-          __DBSET=1
           db=$1
           shift;;
       'x')
@@ -124,17 +117,51 @@ do
           args+=("--logfile=${1}")
           shift;;
       'l')
-          args+=("--log-level=${1}")
+          __LOGLEVEL=$1
           shift;;
-      'W')
-          args+=("--log-level=warn");;
+      'v')
+          __LOGLEVEL=info;;
+      'V')
+          __LOGLEVEL=debug;;
       'r')
           # reset database
           # don't eval yet in case `-d` flag was used
-          #todo="dropdb \$db 2&> /dev/null;${todo}";;
-          __TODO+=("dropdb \$db");;
+          __TODO+=("dropdb --if-exists \$db && createdb \$db");;
       'P')
           __PRODUCTION=1;;
+      't')
+          __PRODUCTION=1
+          __TESTTAG=$(sed 's/^\([^.:]*\)$/.\1/' <<< $1)
+          if [ -z "${__TESTTAG/*.test_*}" ]
+          then
+              shift
+              echo $__TESTTAG > /tmp/last_odoo_test
+          else
+              read __TESTTAG < /tmp/last_odoo_test
+          fi
+          args+=(--stop-after-init --test-enable --test-tags=${__TESTTAG})
+          ;;
+      'T')
+          __PRODUCTION=1
+          test -z "${PWD/*\/enterprise*}" \
+              && __PAT="${root}/enterprise/*/tests/*.py" \
+              || __PAT="${root}/odoo/*addons/*/tests/*.py"
+
+          __CLASS__TEST=($( \
+              git diff -W --diff-filter=AM -U0 HEAD~ $__PAT \
+              | rg '^(?:[+ ]class (\w+)|\+\s*def (test_\w+))' -or '$1$2' \
+          ))
+          for match in "${__CLASS__TEST[@]}"; do
+              if [ -n "${match/test_*}" ]; then
+                  __CLASS=":${match}"
+              else
+                  __TEST_TAGS="${__TEST_TAGS:+$__TEST_TAGS,}${__CLASS}.${match}"
+              fi
+          done
+          echo $__TEST_TAGS > /tmp/last_odoo_test
+          test "$__TEST_TAGS" \
+              && args+=(--stop-after-init --test-enable --test-tags=${__TEST_TAGS})
+          ;;
       '-')
           # add odoo-bin flag (no spaces)
           args+=("--${1}")
@@ -144,7 +171,21 @@ do
     esac
 done
 
+args+=("--log-level=${__LOGLEVEL:-$__DEFAULTLOGLEVEL}")
 test -z "$__PRODUCTION" && args+=('--dev=all')
+
+if [ -z "$__LOCALHOST" ]
+then
+    ip="127.0.${__VERSION}"
+    port="8${__VERSION//./}"
+    args+=("-p${port}")
+fi
+
+if [ -n "$__OPEN" ]
+then
+    url="http://${ip:-localhost}:${port:-8069}"
+    __TODO+=("wait_then_open $url ${url}/web")
+fi
 
 if [ -d "${root}/venv" ]
 then
@@ -157,5 +198,5 @@ do
 done
 
 cd "${root}/odoo"
-exec="$exe -d$db --addons-path="$addons" ${args[@]}"
+exec="$exe -d$db --addons-path=$(tr \  \, <<< ${__ADDONS[@]}) ${args[@]}"
 echo $exec && $exec
