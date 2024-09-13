@@ -40,6 +40,9 @@ do
         '-d' | '--dbname')
             __DB="$1"
             shift;;
+        '-e')
+            __DB="${__DB}e"
+            shift;;
         '-s' | '--seperator')
             __SEP="$1"
             shift;;
@@ -79,7 +82,7 @@ do
                     echo ${mods[@]} | tr ' ' "$__SEP"
                 fi
             fi
-                ;;
+            ;;
         *)
             >&2 echo "unkown arg: $flag" && exit 1
             ;;
@@ -91,7 +94,7 @@ then
     __WHERE="$__WHERE AND $__COL IN ("`sed -E "s/(\w+)/'\1'/g" <<< $@ | tr ' ' ','`')'
 fi
 
-__QUERY="SELECT $__COL FROM $__TABLE WHERE $__WHERE ORDER BY $__COL;" 
+__QUERY="SELECT $__COL FROM $__TABLE WHERE $__WHERE ORDER BY $__COL;"
 __PSQL='psql $__DB -c "$__QUERY" | tail -n +3 | head -n -2'
 
 if [ "$__SEP" ]
