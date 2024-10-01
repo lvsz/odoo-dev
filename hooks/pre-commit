@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# fetch modified python files staged for commit
+files=$(git status --porcelain | rg '^[ARM] .* (\S+.py)$' -or '$1')
+for file in $files; do
+    #git diff -U0 --staged --word-diff=porcelain $f
+    ruff check $file
+done
+
+source addons/web/tooling/hooks/pre-commit

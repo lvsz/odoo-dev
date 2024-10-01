@@ -1,0 +1,7 @@
+#!/bin/bash
+
+get_HEAD_pr() {
+    gh pr list -H $(git symbolic-ref HEAD | rg -o '[^/]*$') --json number --jq '.[0].number'
+}
+
+gh pr comment ${1:-$(get_HEAD_pr)} -b 'robodoo r+'
