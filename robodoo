@@ -1,0 +1,5 @@
+#!/bin/bash
+
+head=$(git symbolic-ref HEAD)
+pr=$(gh pr list -H ${head/*\/} --json number --jq '.[0].number')
+gh pr comment $pr -b "robodoo $*"
