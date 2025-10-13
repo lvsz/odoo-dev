@@ -25,8 +25,8 @@ do
         esac
         sh -c """
             sleep 3
-            open https://github.com/odoo/${repo}/compare/${version}...odoo-dev:${repo}:${branch}
-        """ > /dev/null&
+             open https://github.com/odoo/${repo}/compare/${version}...odoo-dev:${repo}:${branch}
+        """ 2>&1>/dev/null&
     fi
     #open https://github.com/odoo/${repo}/compare/${version}...odoo-dev:${repo}:${branch}?expand=1
 done

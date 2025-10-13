@@ -6,10 +6,12 @@ test -z "$root" && >&2 echo "bad dir: $PWD" && exit 1
 __VERSION=$(_envdb || basename $root)
 case $(basename $0) in
     'oe')
+        db="${__VERSION}e"
         __ADDONS=("${root}/odoo/addons" "$root/enterprise")
         __OE=1
         ;;
     'o')
+        db="${__VERSION}"
         __ADDONS=("${root}/odoo/addons")
         ;;
 esac
@@ -17,6 +19,11 @@ esac
 if [ -d "${root}/design-themes" ]
 then
     __ADDONS+=("$root/design-themes")
+fi
+
+if [ -d "${root}/industry" ]
+then
+    __ADDONS+=("$root/industry" "$root/industry/tests")
 fi
 
 wait_then_open() {
@@ -28,13 +35,7 @@ wait_then_open() {
         break
     done
 }
-community() {
-    test -z "$__DBSET" && db="${__VERSION}"
-    unset __OE
-}
-enterprise() {
-    test -z "$__DBSET" && db="${__VERSION}e"
-}
+
 all_modules() {
     modules=(`ls "$root/odoo/addons" | grep -vE '^(l10n|test)'`)
     test $__OE && modules+=(`ls "$root/enterprise" | grep -vE '^(l10n|test)'`)
@@ -97,6 +98,7 @@ do
                 done
                 args+=($init)
             fi
+            __DEMO=${__DEMO:-1}
             __DEFAULTLOGLEVEL=info;;
       'h')
           __LOCALHOST=1;;
@@ -104,11 +106,13 @@ do
           __OPEN=1;;
       'd')
           db=$1
+          __CUSTDB=1
           shift;;
       'x')
           args+=("--stop-after-init");;
       's')
           exe="${exe} shell"
+          __PRODUCTION=1
           test ! $__LOGFILESET && args+=("--logfile=/tmp/${db}.log");;
       'q')
           test ! $__LOGFILESET && args+=("--logfile=/tmp/${db}.log");;
@@ -128,17 +132,24 @@ do
           # don't eval yet in case `-d` flag was used
           __TODO+=("dropdb --if-exists \$db && createdb \$db");;
       'P')
+          __DEMO=0
           __PRODUCTION=1;;
       't')
           __PRODUCTION=1
-          __TESTTAG=$(sed 's/^\([^.:]*\)$/.\1/' <<< $1)
-          if [ -z "${__TESTTAG/*.test_*}" ]
+          __LOCALHOST=1
+          __TESTTAG="$1"
+          if [[ $__TESTTAG =~ ^[^:] ]]
+          then
+              __TESTTAG=$(sed 's/^\([^.:]*\)$/.\1/' <<< $__TESTTAG)
+          fi
+          if [[ $__TESTTAG =~ ^[\.:] ]]
           then
               shift
               echo $__TESTTAG > /tmp/last_odoo_test
           else
               read __TESTTAG < /tmp/last_odoo_test
           fi
+          __LOGLEVEL="${__LOGLEVEL:-info}"
           args+=(--stop-after-init --test-enable --test-tags=${__TESTTAG})
           ;;
       'T')
@@ -161,6 +172,7 @@ do
           echo $__TEST_TAGS > /tmp/last_odoo_test
           test "$__TEST_TAGS" \
               && args+=(--stop-after-init --test-enable --test-tags=${__TEST_TAGS})
+          __LOGLEVEL="${__LOGLEVEL:-info}"
           ;;
       '-')
           # add odoo-bin flag (no spaces)
@@ -178,13 +190,30 @@ if [ -z "$__LOCALHOST" ]
 then
     ip="127.0.${__VERSION}"
     port="8${__VERSION//./}"
-    args+=("-p${port}")
+    args+=("-p${port} --http-interface=${ip}")
 fi
 
 if [ -n "$__OPEN" ]
 then
     url="http://${ip:-localhost}:${port:-8069}"
     __TODO+=("wait_then_open $url ${url}/web")
+fi
+
+if [ -n "$__DEMO" ]
+then
+    case "$__VERSION" in
+        '15.0' | '16.0' | '17.0' | '18.0' | '18.2')
+            test $__DEMO -eq 0 && args+=('--without-demo=all')
+            ;;
+        *)
+            if [ $__DEMO -eq 1 ]
+            then
+                args+=('--with-demo')
+            elif [ -z "$__CUSTDB" ]
+            then
+                db="${db}x"
+            fi
+    esac
 fi
 
 if [ -d "${root}/venv" ]
