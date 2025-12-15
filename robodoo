@@ -1,5 +1,8 @@
 #!/bin/bash
 
-head=$(git symbolic-ref HEAD)
-pr=$(gh pr list -H ${head/*\/} --json number --jq '.[0].number')
-gh pr comment $pr -b "robodoo $*"
+REF=$(git symbolic-ref --short HEAD)
+test -z "$REF" && exit 1
+
+PR=$(gh pr list -H $REF --json number --jq '.[0].number')
+test -z "$PR" && >&2 echo "No PR for $REF found" && exit 1
+gh pr comment $PR -b "robodoo $*"

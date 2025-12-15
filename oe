@@ -1,6 +1,6 @@
 #!/bin/bash
 
-root=`grep -o ".*/src/odoo/[^/]*" <<< "$PWD"`
+root=`grep -o ".*/Projects/Odoo/[^/]*" <<< "$PWD"`
 test -z "$root" && >&2 echo "bad dir: $PWD" && exit 1
 
 __VERSION=$(_envdb || basename $root)

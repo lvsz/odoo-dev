@@ -17,7 +17,7 @@ db_exists() {
 }
 
 __DB=$(2>/dev/null _envdb)
-if [ "${1:0:1}" -a "${1:0:1}" != '-' ] && db_exists "$1"; then
+if [ -n "${1:0:1}" -a "${1:0:1}" != '-' ] && db_exists "$1"; then
     set -- '-d' "$@"
 elif [ -z "$__DB" ]; then
     >&2 echo "no db"
