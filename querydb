@@ -11,12 +11,19 @@ get_flag_args() {
 }
 
 db_exists() {
-    psql -l | $grep -q $1
+    db=$($grep -o '\S+' <<< $1)
+    test -z "$db" && return 1
+    psql -XAtqwl | $grep -q "$db"
 }
 
-test "${1:0:1}" -a "${1:0:1}" != '-' && db_exists "$1" && set -- '-d' "$@"
+__DB=$(2>/dev/null _envdb)
+if [ "${1:0:1}" -a "${1:0:1}" != '-' ] && db_exists "$1"; then
+    set -- '-d' "$@"
+elif [ -z "$__DB" ]; then
+    >&2 echo "no db"
+    exit 1
+fi
 
-__DB=`_envdb`
 __COL='name'
 __TABLE='ir_module_module'
 __WHERE="state = 'installed'"
@@ -42,7 +49,7 @@ do
             shift;;
         '-e')
             __DB="${__DB}e"
-            shift;;
+            ;;
         '-s' | '--seperator')
             __SEP="$1"
             shift;;
@@ -59,12 +66,12 @@ do
             __FIXED=1
             ;;
         '-l' | '--list')
-            exec $0 $db -p '.' $@
-            todo="psql \$db -c \"SELECT name FROM ir_module_module WHERE state = 'installed' ORDER BY name\""
+            exec $0 $__DB -p '.' $@
+            todo="psql \$__DB -c \"SELECT name FROM ir_module_module WHERE state = 'installed' ORDER BY name\""
             eval $todo
             exit $?
             ;;
-        'f' | 'p')
+        '-f' | '-p')
             # query installed modules
             todo="psql \$db -c \"SELECT name FROM ir_module_module WHERE state = 'installed' ORDER BY name\""
             __args=(`get_flag_args "$@"`)
@@ -83,6 +90,13 @@ do
                 fi
             fi
             ;;
+        '-v' | '-V')
+            query="SELECT latest_version FROM ir_module_module WHERE name = 'base'"
+            version=$(2>/dev/null psql $__DB -XAtqwc "$query")
+            test "$?" -gt 0 -o -z "$version" && >&2 echo "not an odoo db: $__DB" && exit 1
+            test "$flag" = '-v' && version="$($grep -o '((saas.)?[0-9][0-9]\.[0-9])' <<< $version)"
+            echo ${__DB}: $version && exit 0
+            ;;
         *)
             >&2 echo "unkown arg: $flag" && exit 1
             ;;
@@ -95,7 +109,7 @@ then
 fi
 
 __QUERY="SELECT $__COL FROM $__TABLE WHERE $__WHERE ORDER BY $__COL;"
-__PSQL='psql $__DB -c "$__QUERY" | tail -n +3 | head -n -2'
+__PSQL='psql $__DB -XAtqwc "$__QUERY"'
 
 if [ "$__SEP" ]
 then
@@ -105,6 +119,9 @@ then
         __RET="${__RET}${__SEP}${__EL:1}"
     done
     echo ${__RET:${#__SEP}}
+elif [ "$#" -gt 0 ]
+then
+    eval $__PSQL | $grep $@
 else
     eval $__PSQL
 fi
