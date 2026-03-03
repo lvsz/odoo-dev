@@ -2,8 +2,15 @@ try:
     from odoo.orm.decorators import attrsetter
 except ImportError:
     from odoo.api import attrsetter
-from odoo import fields
+from odoo import api, fields
 from odoo.cli.shell import Shell
+
+
+@api.model
+def _get(self, name):
+    if res := self.name_search(name, limit=1):
+        return self.browse(res[0][0])
+    return self
 
 
 @attrsetter('_trans', str.maketrans({'_': ' ', '.': ' '}))
@@ -27,8 +34,10 @@ def extend_vars(env, local_vars):
     )
     if hasattr(fields, 'Domain'):
         local_vars['Domain'] = fields.Domain
-    for model in env['ir.model'].search_fetch([], ['model']):
-        local_vars[model2var(model.model)] = env[model.model]
+    for ir_model in env['ir.model'].search_fetch([], ['model']):
+        local_vars[model2var(ir_model.model)] = model = env[ir_model.model]
+        if not hasattr(model.__class__, '_get'):
+            setattr(model.__class__, '_get', _get)
 
 
 @attrsetter('_orig', Shell.console)
